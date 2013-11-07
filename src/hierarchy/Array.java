@@ -4,6 +4,7 @@
  */
 package hierarchy;
 
+import java.io.File;
 import java.io.IOException;
 
 /**
@@ -19,11 +20,13 @@ public interface Array<TYP> {
     public void set(int key, TYP e) throws Exception;
 
     public int size();
+    public int capacity();
 
     public void shutdown() throws Exception;
 
     public void add(TYP e) throws Exception;
-
+    public boolean containsKey(int key);
+    public Array<File> getChild();
     /**
      * Call local set() and wb(), then do LST.set(key,e) and
      * LST.store(key,e). After wb(key,e), this and all lower levels will up
