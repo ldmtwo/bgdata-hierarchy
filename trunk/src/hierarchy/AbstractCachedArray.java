@@ -1,10 +1,5 @@
-/*
- * To change this template, choose Tools | Templates
- * and open the template in the editor.
- */
 package hierarchy;
 
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.LinkedList;
 
@@ -29,72 +24,106 @@ public abstract class AbstractCachedArray<LST extends Array<TYP>, TYP> implement
     public String name = "?";
     public boolean CAN_DELETE = true;
     protected LST disk;
-    protected int SIZE;
+    protected int CAPACITY;
     protected Object[] cache;
-    private boolean[] dirty;
-    private int[] timer;
+    protected boolean[] dirty;
+    protected int[] timer;
     private int[] refCount;
-    private int[] keys;
+    protected int[] keys;
     private int clockPos = 0;
-    private LinkedList<Integer> freeList;
-    private HashMap<Integer, Integer> indices;
+    protected LinkedList<Integer> freeList;
+    protected HashMap<Integer, Integer> indices;
 
-    public AbstractCachedArray(LST disk, int SIZE) {
-        this.SIZE = SIZE;
+    @Override
+    public String toString() {
+        String ret = "";
+        ret += String.format("Name: %s\n", name);
+        ret += String.format("\tdisk: %s\n", disk.getName());
+        ret += String.format("\tFREE/CAPACITY: %s/%s\n", freeList.size(), CAPACITY);
+        ret += String.format("\tCache: dirty\ttimer\tkeys\tcache\n\t\t%s\t%s\t%s\t%s\n", dirty[0] ? "1" : "0", timer[0], keys[0], cache[0]);
+        for (int i = 1; i < CAPACITY; i++) {
+            ret += String.format("\t\t%s\t%s\t%s\t%s\n", dirty[i] ? "1" : "0", timer[i], keys[i], cache[i]);
+        }
+        ret += String.format("\tclockPos: %s\n", clockPos);
+        ret += String.format("\tfreeList: %s\n", freeList);
+        ret += disk.toString().replace("\n", "\n" + disk.getName() + "\t");
+
+        return ret;
+    }
+
+    public void print() {
+        String ret = "";
+        ret += String.format("Name: %s\n", name);
+        ret += String.format("\tdisk: %s\n", disk.getName());
+        ret += String.format("\tFREE/CAPACITY: %s/%s\n", freeList.size(), CAPACITY);
+        ret += String.format("\tCache: dirty\ttimer\tkeys\tcache\n\t\t%s\t%s\t%s\t%s\n", dirty[0] ? "1" : "0", timer[0], keys[0], cache[0]);
+        for (int i = 1; i < CAPACITY; i++) {
+            ret += String.format("\t\t%s\t%s\t%s\t%s\n", dirty[i] ? "1" : "0", timer[i], keys[i], cache[i]);
+        }
+        ret += String.format("\tclockPos: %s\n", clockPos);
+        ret += String.format("\tfreeList: %s\n", freeList);
+        System.err.println(ret);
+    }
+
+    public void printKeys() {
+        String ret = getName() + " [";
+        for (int i = 0; i < CAPACITY; i++) {
+            ret += String.format("%4s,", keys[i]);
+        }
+        ret += "]";
+//        ret+="\t"+disk.printKeys();
+        System.err.println(ret);
+    }
+
+    public AbstractCachedArray(LST disk, int CAPACITY) {
+        this.CAPACITY = CAPACITY;
         this.disk = disk;
-        dirty = new boolean[SIZE];
-        timer = new int[SIZE];
-        refCount = new int[SIZE];
-        cache = new Object[SIZE];
-        keys = new int[SIZE];
-        indices = new HashMap<>(SIZE);
+        dirty = new boolean[CAPACITY];
+        timer = new int[CAPACITY];
+        refCount = new int[CAPACITY];
+        cache = new Object[CAPACITY];
+        keys = new int[CAPACITY];
+        indices = new HashMap<>(CAPACITY);
         freeList = new LinkedList<>();
-        for (int key = 0; key < SIZE; key++) {
+        for (int key = 0; key < CAPACITY; key++) {
             freeList.add(key);
         }
+    }
+
+    @Override
+    public boolean containsKey(int key) {
+        return indices.containsKey(key);
     }
 
     @Override
     public int size() {
         return disk.size(); //To change body of generated methods, choose Tools | Templates.
     }
+
     @Override
     public void set(int key, TYP e) throws Exception {
         int idx;
-//        System.out.printf("%s:  set(%s, %s)\n", name, key, e);
-        if (indices.containsKey(key)) {
-            idx = indices.get(key);
-            timer[idx]++;
-            System.out.printf("%s:   found: T[%s]=cache[%s]\n", name, key, e);
-        } else {
-            idx = allocate(key);
-            System.out.printf("%s:   alloc: T[%s]=cache[%s]\n", name, key, e);
-//            disk.store(key, e);
-        }
-        dirty[idx] = true;
-        cache[idx] = e; 
-    }
 
+        idx = allocate(key);
+        timer[idx]++;
+        dirty[idx] = true;
+        cache[idx] = e;
+    }
 
     @Override
     public TYP get(int key) throws Exception {
         int idx;
-        if (indices.containsKey(key)) {
-            idx = indices.get(key);
-            timer[idx]++;
-            System.out.printf("%s: get: found: cache[%s] <-- T[%s]\n", name, idx, key);
-            return (TYP) cache[idx];
-        } else {
-            idx = allocate(key);
-            load(key, idx);
-            System.out.printf("%s: get: loaded: cache[%s] <-- T[%s]\n", name, idx, key);
-            return (TYP) cache[idx];
+        if (!indices.containsKey(key)) {
+            load(key, -1);
         }
+        idx = indices.get(key);
+        timer[idx]++;
+        return (TYP) cache[idx];
     }
 
     @Override
     public void shutdown() throws Exception {
-        for (int idx = 0; idx < SIZE; idx++) {
+        for (int idx = 0; idx < CAPACITY; idx++) {
             free(idx);
         }
     }
@@ -106,20 +135,35 @@ public abstract class AbstractCachedArray<LST extends Array<TYP>, TYP> implement
      */
     int allocate(int key) throws Exception {
         int idx;
-        
-        if (indices.containsKey(key))return indices.get(key);
-//        System.out.printf("%s:   cache[]={%s}\n", name, Arrays.toString(cache));
+//System.err.printf(getName()+": alloc:\n\tkey=%s (%s)\n\t# free=%s\n", key, indices.containsKey(key)
+//        ,freeList.size()
+//        );
+        if (indices.containsKey(key)) {//key already owns a spot
+//System.err.printf("\tidx=%s\n", indices.get(key)        );
+            return indices.get(key);
+        }
+//        if (freeList.contains(key)) {
+//            System.out.printf("WARNING: Why is key \"%s\" free?\n", key);
+//            System.exit(-1);
+//        }
         if (freeList.size() <= 0) {//nothing free
             //run clock sweep
-            idx = chooseVictim();
-            System.out.printf("%s:  evicting ([%s])\n", name, idx);
-            free(idx);
+            idx = chooseVictim();//choose someone
+            //evict someone
+            store(keys[idx], (TYP) cache[idx]);
+            cache[idx] = null;
+            keys[idx] = -1;//for safety and sanity
+            dirty[idx] = false;
+            //freeList.push(idx);
         } else {
-        }
             idx = freeList.pop();
-//            System.out.printf("%s:     popped ([%s])\n", name, idx);
-//        System.out.printf("%s:     mapped: cache[%s] <-- T[%s]\n", name, idx, key);
+        }
         indices.put(key, idx);
+        if (cache[idx] != null) {
+            System.out.printf("ERROR: cache[%s] not null!\n", idx);
+            System.exit(-1);
+        }
+//System.err.printf("\tidx=%s\n", idx        );
         dirty[idx] = false;//duplicated work
         timer[idx] = 2;
         keys[idx] = key;
@@ -132,25 +176,26 @@ public abstract class AbstractCachedArray<LST extends Array<TYP>, TYP> implement
      * @return
      */
     int chooseVictim() {
+//        return clockPos;
         int victim = -1;
-        int attempts = SIZE * 4;
-        for (int j = 0; j < SIZE; j++) {
+        int attempts = CAPACITY * 4;
+        for (int j = 0; j < CAPACITY; j++) {
 //            System.out.printf("%s:     clock: time(cache[%s])=%s\n", name,
-//                    (j + clockPos) % SIZE,timer[(j + clockPos) % SIZE]);
-            if (timer[(j + clockPos) % SIZE] == 0 && refCount[(j + clockPos) % SIZE] == 0) {
-                victim = (j + clockPos) % SIZE;
+//                    (j + clockPos) % CAPACITY,timer[(j + clockPos) % CAPACITY]);
+            if (timer[(j + clockPos) % CAPACITY] == 0) {
+                victim = (j + clockPos) % CAPACITY;
                 break;
             }
         }
         if (victim < 0) {
-            for (int j = 0;attempts-->0; j++) {
+            for (int j = 0;; j++) {
 //            System.out.printf("%s:     clock2: time(cache[%s])=%s\n", name,
-//                    (j + clockPos) % SIZE,timer[(j + clockPos) % SIZE]);
-                if (timer[(j + clockPos) % SIZE] <= 0 && refCount[(j + clockPos) % SIZE] == 0) {
-                    victim = (j + clockPos) % SIZE;
+//                    (j + clockPos) % CAPACITY,timer[(j + clockPos) % CAPACITY]);
+                if (timer[(j + clockPos) % CAPACITY] <= 0) {
+                    victim = (j + clockPos) % CAPACITY;
                     break;
-                } else if (timer[(j + clockPos) % SIZE] > 0) {//pre dec
-                    timer[(j + clockPos) % SIZE]--;
+                } else if (timer[(j + clockPos) % CAPACITY] > 0) {//pre dec
+                    timer[(j + clockPos) % CAPACITY]--;
                 }
             }
         }
@@ -168,16 +213,18 @@ public abstract class AbstractCachedArray<LST extends Array<TYP>, TYP> implement
         //if dirty[idx], then move cache[idx] from L to L-1
         //else delete cache[idx] 
         //add idx to free list
-        if (dirty[idx]) {
+//        if (dirty[idx])
+        {
             //write back(key, T[key])==wb(c2a[idx], cache[idx])
             store(keys[idx], (TYP) cache[idx]);
-        } 
+//            printKeys();
+        }
         cache[idx] = null;
         keys[idx] = -1;//for safety and sanity
         dirty[idx] = false;
         freeList.push(idx);
-        indices.remove(idx);
-        
+//        indices.remove(idx);
+
 //        System.out.printf("%s:     push ([%s])\n", name, idx);
     }
 
@@ -193,8 +240,8 @@ public abstract class AbstractCachedArray<LST extends Array<TYP>, TYP> implement
 
     /**
      * Call LST.get() and then store in local array Assumes that after load(key,
-     * idx) is called, the value T[key] will be in cache[idx] and cache[idx] will
-     * be valid (if other operations are necessary, such as file copy or
+     * idx) is called, the value T[key] will be in cache[idx] and cache[idx]
+     * will be valid (if other operations are necessary, such as file copy or
      * decompression).
      *
      * @param key
@@ -209,7 +256,7 @@ public abstract class AbstractCachedArray<LST extends Array<TYP>, TYP> implement
     @Override
     public void add(TYP e) throws Exception {
         int key = size();
-        System.out.printf("%s: adding(%s, %s)\n", name, key, e);
+//        System.out.printf("%s: adding(%s, %s)\n", name, key, e);
         set(key, e);
     }
 }
